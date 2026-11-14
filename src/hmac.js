@@ -28,16 +28,30 @@ function computeHmac(secret, rawBody) {
   return crypto.createHmac('sha256', secret).update(rawBody).digest();
 }
 
+// The platform issues the secret as 64 hex chars (32 bytes). The docs do
+// not say whether it HMACs with the hex STRING or the hex-DECODED bytes,
+// so verification accepts both forms of the same secret. Accepting both
+// does not weaken anything: both keys derive from the same secret value.
+function secretForms(secret) {
+  const forms = [secret];
+  if (typeof secret === 'string' && /^[0-9a-fA-F]{64}$/.test(secret.trim())) {
+    forms.push(Buffer.from(secret.trim(), 'hex'));
+  }
+  return forms;
+}
+
 /**
  * Verify an incoming x-agent-games-signature header against the raw body.
  * Returns true only on an exact timing-safe match.
  */
 function verifySignature(secret, rawBody, header) {
   if (!secret || !Buffer.isBuffer(rawBody) || rawBody.length === 0) return false;
-  const expected = computeHmac(secret, rawBody);
   const given = parseSignature(header);
-  if (!given || given.length !== expected.length) return false;
-  return crypto.timingSafeEqual(given, expected);
+  if (!given) return false;
+  return secretForms(secret).some((form) => {
+    const expected = computeHmac(form, rawBody);
+    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+  });
 }
 
 /**

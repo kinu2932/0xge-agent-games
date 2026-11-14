@@ -39,7 +39,7 @@ const logger = require('./logger');
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
-const HMAC_SECRET = process.env.AGENT_HMAC_SECRET || '';
+const HMAC_SECRET = (process.env.AGENT_HMAC_SECRET || '').trim();
 const TASK_TIMEOUT_MS = Number(process.env.TASK_TIMEOUT_MS || 45000);
 const TIMESTAMP_SKEW_MS = Number(process.env.TIMESTAMP_SKEW_MS || 300000);
 const VK_HASH = process.env.GATEKEEPER_VK_HASH || DEFAULT_VK_HASH;

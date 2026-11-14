@@ -40,3 +40,16 @@ test('empty secret refuses everything', () => {
   const header = signBody(SECRET, BODY);
   assert.equal(verifySignature('', BODY, header), false);
 });
+
+test('64-hex secret verifies in both string and hex-decoded forms', () => {
+  // The platform issues a 64-hex-char secret; the docs do not say whether
+  // it HMACs with the hex string or the decoded bytes. Both must verify.
+  const hexSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const headerString = signBody(hexSecret, BODY);
+  assert.equal(verifySignature(hexSecret, BODY, headerString), true);
+  const headerDecoded = signBody(Buffer.from(hexSecret, 'hex'), BODY);
+  assert.equal(verifySignature(hexSecret, BODY, headerDecoded), true);
+  // ...but a different hex secret still fails.
+  const other = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  assert.equal(verifySignature(hexSecret, BODY, signBody(other, BODY)), false);
+});
