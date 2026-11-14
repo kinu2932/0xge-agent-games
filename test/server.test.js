@@ -62,7 +62,24 @@ test('POST /agent with a bad signature is 401', async () => {
   assert.equal(res.status, 401);
 });
 
-test('POST /agent with a valid signature but bad JSON is 400', async () => {
+test('POST /agent without a signature is 401 but signed (protocol-v1)', async () => {
+  const body = JSON.stringify({ taskId: 'x' });
+  const res = await fetch(`${base}/agent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+  });
+  assert.equal(res.status, 401);
+  const header = res.headers.get('x-agent-games-signature');
+  assert.ok(header && header.startsWith('sha256='));
+  const responseRaw = Buffer.from(await res.arrayBuffer());
+  const { verifySignature } = require('../src/hmac');
+  assert.equal(verifySignature(SECRET, responseRaw, header), true);
+  const json = JSON.parse(responseRaw.toString('utf8'));
+  assert.equal(json.protocol, 'v1');
+});
+
+test('POST /agent with a valid signature but bad JSON is 400 and signed', async () => {
   const raw = Buffer.from('{not json');
   const res = await fetch(`${base}/agent`, {
     method: 'POST',
@@ -70,6 +87,43 @@ test('POST /agent with a valid signature but bad JSON is 400', async () => {
     body: raw,
   });
   assert.equal(res.status, 400);
+  const header = res.headers.get('x-agent-games-signature');
+  assert.ok(header && header.startsWith('sha256='));
+  const responseRaw = Buffer.from(await res.arrayBuffer());
+  const { verifySignature } = require('../src/hmac');
+  assert.equal(verifySignature(SECRET, responseRaw, header), true);
+  assert.equal(JSON.parse(responseRaw.toString('utf8')).protocol, 'v1');
+});
+
+test('POST /agent preflight envelope returns signed protocol-v1 ok', async () => {
+  const raw = Buffer.from(JSON.stringify({ type: 'preflight', timestamp: Date.now() }));
+  const res = await fetch(`${base}/agent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-agent-games-signature': signBody(SECRET, raw) },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+  const header = res.headers.get('x-agent-games-signature');
+  assert.ok(header && header.startsWith('sha256='));
+  const responseRaw = Buffer.from(await res.arrayBuffer());
+  const { verifySignature } = require('../src/hmac');
+  assert.equal(verifySignature(SECRET, responseRaw, header), true);
+  const json = JSON.parse(responseRaw.toString('utf8'));
+  assert.equal(json.protocol, 'v1');
+  assert.equal(json.status, 'ok');
+});
+
+test('GET /agent returns signed protocol-v1 info', async () => {
+  const res = await fetch(`${base}/agent`);
+  assert.equal(res.status, 200);
+  const header = res.headers.get('x-agent-games-signature');
+  assert.ok(header && header.startsWith('sha256='));
+  const responseRaw = Buffer.from(await res.arrayBuffer());
+  const { verifySignature } = require('../src/hmac');
+  assert.equal(verifySignature(SECRET, responseRaw, header), true);
+  const json = JSON.parse(responseRaw.toString('utf8'));
+  assert.equal(json.protocol, 'v1');
+  assert.equal(json.status, 'ok');
 });
 
 test('POST /agent with a valid task is signed and fail-closed (REJECT)', async () => {
@@ -108,6 +162,7 @@ test('POST /agent with a valid task is signed and fail-closed (REJECT)', async (
   const { verifySignature } = require('../src/hmac');
   assert.equal(verifySignature(SECRET, responseRaw, header), true);
   const json = JSON.parse(responseRaw.toString('utf8'));
+  assert.equal(json.protocol, 'v1');
   assert.equal(json.taskId, 'smoke-001');
   assert.equal(json.decision, 'REJECT'); // bootstrap mode: mapping not configured
   assert.match(json.reason, /mapping not configured/);

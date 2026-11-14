@@ -87,7 +87,32 @@ async function handleTask(rawBody) {
   try {
     parsed = JSON.parse(rawBody.toString('utf8'));
   } catch {
-    return { status: 400, body: { error: 'invalid JSON' }, taskId: null };
+    return { status: 400, body: errorBody('INVALID_JSON', 'invalid JSON'), taskId: null };
+  }
+
+  // Preflight / handshake envelope (no task to decide): answer with signed
+  // protocol-v1 JSON so the platform's endpoint check can verify the agent
+  // holds the secret, without consuming a task or a proof reference.
+  const preflightType = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? String(parsed.type || parsed.event || '').toLowerCase()
+    : '';
+  if (['preflight', 'ping', 'hello', 'health'].includes(preflightType)) {
+    return {
+      status: 200,
+      taskId: null,
+      body: {
+        protocol: 'v1',
+        status: 'ok',
+        taskId: null,
+        decision: 'REJECT',
+        reason: 'preflight: no task to decide',
+        checks: [],
+        proof: null,
+        proofStatus: 'not_required',
+        proofReference: null,
+        verification: { vkHash: VK_HASH, kurierStatus: 'not_submitted' },
+      },
+    };
   }
 
   const result = await decide(parsed, {
@@ -165,6 +190,7 @@ async function handleTask(rawBody) {
 
 function responseBody(result, extra = {}) {
   return {
+    protocol: 'v1',
     taskId: result.taskId || null,
     decision: result.decision,
     reason: result.reason,
@@ -174,6 +200,16 @@ function responseBody(result, extra = {}) {
     proofReference: extra.verification?.proofReference || null,
     verification: extra.verification || { vkHash: VK_HASH, kurierStatus: 'not_submitted' },
   };
+}
+
+// The platform's endpoint check ("must return signed protocol-v1 JSON")
+// probes the endpoint before any real task exists — possibly unsigned, or
+// with a preflight envelope. Every /agent response is therefore signed
+// with the agent secret whenever it is configured (including 400/401),
+// and carries protocol: 'v1', so the probe can verify the endpoint holds
+// the platform-issued secret even when the probe itself is not a task.
+function errorBody(code, error) {
+  return { protocol: 'v1', error, code };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -194,6 +230,18 @@ const server = http.createServer(async (req, res) => {
       kurierConfigured: Boolean(kurier.config()),
     });
   }
+  if (req.method === 'GET' && url.pathname === '/agent') {
+    // Protocol handshake probe: answer with signed protocol-v1 JSON so a
+    // GET-based endpoint check can verify the agent holds the secret.
+    return sendJson(res, 200, {
+      protocol: 'v1',
+      status: 'ok',
+      name: '0xge-agent-games',
+      track: 'Proof Gatekeeper',
+      version: VERSION,
+      endpoint: 'POST /agent',
+    }, { sign: true });
+  }
   if (req.method !== 'POST' || url.pathname !== '/agent') {
     return sendJson(res, 404, { error: 'not found' });
   }
@@ -203,16 +251,16 @@ const server = http.createServer(async (req, res) => {
   try {
     rawBody = await readBody(req);
   } catch (err) {
-    return sendJson(res, 400, { error: err.message });
+    return sendJson(res, 400, errorBody('BODY_ERROR', err.message), { sign: true });
   }
   if (!HMAC_SECRET) {
     logger.error('AGENT_HMAC_SECRET is not set; refusing all tasks');
-    return sendJson(res, 500, { error: 'agent misconfigured: HMAC secret missing' });
+    return sendJson(res, 500, errorBody('MISCONFIGURED', 'agent misconfigured: HMAC secret missing'), { sign: true });
   }
   const signature = req.headers['x-agent-games-signature'];
   if (!verifySignature(HMAC_SECRET, rawBody, signature)) {
     logger.warn('bad HMAC signature', { requestId });
-    return sendJson(res, 401, { error: 'invalid signature' });
+    return sendJson(res, 401, errorBody('INVALID_SIGNATURE', 'invalid signature'), { sign: true });
   }
 
   // Steps 2-6, bounded by the task deadline. On timeout: fail closed.
