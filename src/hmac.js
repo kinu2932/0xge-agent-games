@@ -54,12 +54,25 @@ function verifySignature(secret, rawBody, header) {
   });
 }
 
+// The platform issues the secret as 64 hex chars and HMACs with the
+// hex-DECODED bytes (32-byte key): the endpoint check flipped from
+// HTTP 401 (string-form verification) to a response-signature failure
+// once verification accepted the decoded form, so the platform signs
+// requests with the decoded key — and verifies our responses with it.
+// Signing therefore uses the decoded form for a 64-hex secret.
+function signingKey(secret) {
+  if (typeof secret === 'string' && /^[0-9a-fA-F]{64}$/.test(secret.trim())) {
+    return Buffer.from(secret.trim(), 'hex');
+  }
+  return secret;
+}
+
 /**
  * Sign an outgoing raw response body. Returns the header value to send.
  */
 function signBody(secret, rawBody) {
-  const digest = computeHmac(secret, rawBody).toString('hex');
+  const digest = computeHmac(signingKey(secret), rawBody).toString('hex');
   return `sha256=${digest}`;
 }
 
-module.exports = { computeHmac, parseSignature, signBody, verifySignature };
+module.exports = { computeHmac, parseSignature, signBody, signingKey, verifySignature };

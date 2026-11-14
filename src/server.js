@@ -243,7 +243,7 @@ const server = http.createServer(async (req, res) => {
     }, { sign: true });
   }
   if (req.method !== 'POST' || url.pathname !== '/agent') {
-    return sendJson(res, 404, { error: 'not found' });
+    return sendJson(res, 404, errorBody('NOT_FOUND', 'not found'), { sign: true });
   }
 
   // Step 1: HMAC verification against the RAW body, BEFORE parsing.
@@ -270,6 +270,7 @@ const server = http.createServer(async (req, res) => {
         status: 200,
         taskId: null,
         body: {
+          protocol: 'v1',
           taskId: null,
           decision: 'REJECT',
           reason: 'task timeout: exceeded TASK_TIMEOUT_MS',
@@ -292,6 +293,7 @@ const server = http.createServer(async (req, res) => {
       status: 200,
       taskId: null,
       body: {
+        protocol: 'v1',
         taskId: null,
         decision: 'REJECT',
         reason: `internal error: ${err.message}`,

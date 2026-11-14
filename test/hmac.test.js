@@ -53,3 +53,18 @@ test('64-hex secret verifies in both string and hex-decoded forms', () => {
   const other = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
   assert.equal(verifySignature(hexSecret, BODY, signBody(other, BODY)), false);
 });
+
+test('signing a 64-hex secret uses the hex-decoded key', () => {
+  // The platform signs requests with the decoded 32-byte key (proven by
+  // the endpoint check flipping 401 -> response-signature failure once
+  // verification accepted the decoded form), so our responses must be
+  // signed with the same key or the platform rejects them.
+  const { computeHmac, signingKey } = require('../src/hmac');
+  const hexSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const expected = computeHmac(Buffer.from(hexSecret, 'hex'), BODY).toString('hex');
+  assert.equal(signBody(hexSecret, BODY), `sha256=${expected}`);
+  assert.deepEqual(signingKey(hexSecret), Buffer.from(hexSecret, 'hex'));
+  // Non-hex secrets sign with the string as-is.
+  assert.equal(signingKey(SECRET), SECRET);
+  assert.equal(signBody(SECRET, BODY), `sha256=${computeHmac(SECRET, BODY).toString('hex')}`);
+});
