@@ -1,0 +1,11 @@
+node_modules/
+.env
+*.log
+data/*
+!data/.gitkeep
+.DS_Store
+# Circuit binaries are NOT committed: they are downloaded + hash-verified
+# by `npm run download-circuits` (see circuits/README.md). Only the small
+# derived vkey JSON and the signals map are committed.
+circuits/*.wasm
+circuits/*.zkey
